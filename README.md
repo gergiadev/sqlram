@@ -8,6 +8,7 @@ This is a learning project. It is not a full SQL database (see [Limitations](#li
 
 - Databases and tables
 - `INSERT`, `SELECT`, `UPDATE`, `DELETE`, `TRUNCATE`, `DROP`
+- Upsert: `INSERT ... ON CONFLICT { cols } UPDATE`
 - `WHERE`, `ORDER BY`, `LIMIT`
 - Data types: `int`, `bigint`, `bool`, `float`, `timestamp`, `text`
 - Prepared statements with placeholders (`?`)
@@ -198,6 +199,7 @@ DROP TABLE name;
 DROP DATABASE name;
 
 INSERT INTO t { 1, "alice", true };
+INSERT INTO t { 1, "alice", true } ON CONFLICT { id } UPDATE;
 
 SELECT * FROM t;
 SELECT id, name FROM t;
@@ -211,6 +213,39 @@ TRUNCATE t;
 Comparison operators: `=`, `!=`, `<`, `<=`, `>`, `>=`.
 
 A `WHERE` clause supports one condition (no `AND` or `OR`).
+
+### Upsert
+
+`ON CONFLICT { cols } UPDATE` turns an `INSERT` into an insert-or-update: if the
+table already holds a row whose `cols` match the values being inserted, that row is
+overwritten instead of a new one being appended. The row keeps its position, so the
+order of `SELECT *` does not change.
+
+```sql
+CREATE TABLE items { int id, text name, float price };
+
+INSERT INTO items { 1, "apple", 0.99 } ON CONFLICT { id } UPDATE;  -- inserts
+INSERT INTO items { 1, "apple", 1.49 } ON CONFLICT { id } UPDATE;  -- updates
+
+-- the key can span several columns
+CREATE TABLE sales { int year, int month, float total };
+INSERT INTO sales { 2024, 7, 100.0 } ON CONFLICT { year, month } UPDATE;
+```
+
+The key is named by the statement, not by the schema, so different statements may use
+different keys on the same table. The whole row is replaced on conflict — there is no
+`SET` list, since an `INSERT` already carries a value for every column.
+
+The first upsert on a table builds a hash index over the named columns and later
+upserts reuse it, so a bulk upsert costs O(1) per row rather than a scan. The index is
+dropped and rebuilt on demand whenever `UPDATE`, `DELETE` or `TRUNCATE` touches the
+table, or when a statement names a different key.
+
+Placeholders work as usual, which is the fast way to upsert many rows:
+
+```c
+sqlram_stmt *st = sqlram_prepare("INSERT INTO t { ?, ? } ON CONFLICT { id } UPDATE;");
+```
 
 ## Prepared statements
 
@@ -271,12 +306,17 @@ sqlram_table.c    table operations
 sqlram_record.c   record operations (CRUD)
 repl.c            interactive REPL
 examples/         example and benchmark
+tests/            test suite (`make test`)
 ```
 
 ## Limitations
 
 - No `JOIN`, aggregates, `GROUP BY`, or transactions.
 - `WHERE` supports one condition only.
+- No `PRIMARY KEY` or `UNIQUE`: the upsert key is declared per statement and is **not**
+  enforced. A plain `INSERT` can still create duplicate keys, and if a table already
+  holds duplicates, an upsert updates the row that was inserted first.
+- No comment syntax: `--` is not recognised.
 - Data is not persisted: everything is lost when the program ends.
 - One global instance (no multiple independent engines).
 

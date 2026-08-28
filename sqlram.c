@@ -222,7 +222,7 @@ sqlram_result *sqlram_exec_stmt (sqlram_stmt *st) {
             vals[i] = (k >= 0) ? st->params[k] : ins->values[i];
         }
 
-        int rc = exec_insert (ins->tblname, vals, ins->numValues);
+        int rc = exec_upsert (ins->tblname, vals, ins->numValues, ins->conflictCols, ins->numConflictCols);
         free (vals);
         if (rc < 0) {
             return NULL;

@@ -2,6 +2,8 @@
 
 #include "sqlram_internal.h"
 
+static void index_drop (Table *t);
+
 static void record_free (Table *t, Record *r) {
     if (!r) {
         return;
@@ -21,6 +23,7 @@ void record_free_all (Table *t) {
     }
     t->records = NULL;
     t->tail = NULL;
+    index_drop (t);
 }
 
 static int value_cmp (sqlram_type ty, const sqlram_value *a, const sqlram_value *b) {
@@ -74,6 +77,184 @@ static int find_col (Table *t, const char *name) {
     }
     return -1;
 }
+
+/* ---- Hash index over the ON CONFLICT key columns ----------------------
+ *
+ * Built lazily by the upsert path so that a bulk upsert costs O(1) per row
+ * instead of a linear scan. Only one key set is cached per table: an upsert
+ * naming different columns rebuilds it.
+ *
+ * The hashes below must agree with value_cmp(): two values that compare equal
+ * have to land in the same bucket. */
+
+#define FNV_OFFSET 14695981039346656037ULL
+#define FNV_PRIME 1099511628211ULL
+
+static uint64_t hash_bytes (const void *p, size_t n, uint64_t h) {
+    const unsigned char *b = p;
+    for (size_t i = 0; i < n; i++) {
+        h ^= b[i];
+        h *= FNV_PRIME;
+    }
+    return h;
+}
+
+static uint64_t hash_field (sqlram_type ty, const Field *f, uint64_t h) {
+    switch (ty) {
+    case SQLRAM_INT: {
+        long v = f->v.i_val;
+        return hash_bytes (&v, sizeof (v), h);
+    }
+    case SQLRAM_BOOL: {
+        unsigned char v = f->v.b_val ? 1 : 0;
+        return hash_bytes (&v, sizeof (v), h);
+    }
+    case SQLRAM_FLOAT: {
+        double v = f->v.d_val;
+        if (v != v) {
+            /* NaN: value_cmp() reports it equal to everything, which is not an
+             * equivalence relation, so no hash can be consistent with it. All
+             * NaNs at least share a bucket. A float is a poor key anyway. */
+            unsigned char nan_tag = 0xA5;
+            return hash_bytes (&nan_tag, sizeof (nan_tag), h);
+        }
+        if (v == 0.0) {
+            v = 0.0; /* -0.0 and 0.0 compare equal */
+        }
+        return hash_bytes (&v, sizeof (v), h);
+    }
+    case SQLRAM_TIMESTAMP: {
+        time_t v = f->v.t_val;
+        return hash_bytes (&v, sizeof (v), h);
+    }
+    case SQLRAM_TEXT: {
+        const char *v = f->v.s_val ? f->v.s_val : ""; /* as in value_cmp() */
+        return hash_bytes (v, strlen (v), h);
+    }
+    }
+    return h;
+}
+
+static uint64_t hash_key (Table *t, const int *cols, int n, const Field *base) {
+    uint64_t h = FNV_OFFSET;
+    for (int i = 0; i < n; i++) {
+        h = hash_field (t->fields[cols[i]]->fieldType, &base[cols[i]], h);
+        h ^= 0xff; /* separator, so { "ab", "c" } and { "a", "bc" } differ */
+        h *= FNV_PRIME;
+    }
+    return h;
+}
+
+static int key_equal (Table *t, const int *cols, int n, const Field *a, const Field *b) {
+    for (int i = 0; i < n; i++) {
+        if (value_cmp (t->fields[cols[i]]->fieldType, &a[cols[i]], &b[cols[i]]) != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void index_drop (Table *t) {
+    free (t->keyBuckets);
+    free (t->keyCols);
+    t->keyBuckets = NULL;
+    t->keyBucketCap = 0;
+    t->keyCount = 0;
+    t->keyCols = NULL;
+    t->numKeyCols = 0;
+}
+
+/* Appends to the tail of the bucket rather than the head. Nothing stops a
+ * plain INSERT from creating duplicate keys, so chain order is made to follow
+ * insertion order: a lookup then deterministically finds the oldest row. */
+static void index_bucket_put (Record **buckets, size_t cap, Table *t, Record *r) {
+    size_t b = (size_t)(hash_key (t, t->keyCols, t->numKeyCols, r->fields) & (cap - 1));
+    r->hnext = NULL;
+    if (!buckets[b]) {
+        buckets[b] = r;
+        return;
+    }
+    Record *cur = buckets[b];
+    while (cur->hnext) {
+        cur = cur->hnext;
+    }
+    cur->hnext = r;
+}
+
+/* Refills the buckets from the record list. Requires t->keyCols to be set. */
+static int index_rehash (Table *t, size_t cap) {
+    Record **buckets = calloc (cap, sizeof (Record *));
+    if (!buckets) {
+        return 0;
+    }
+    size_t n = 0;
+    for (Record *r = t->records; r; r = r->next) {
+        index_bucket_put (buckets, cap, t, r);
+        n++;
+    }
+    free (t->keyBuckets);
+    t->keyBuckets = buckets;
+    t->keyBucketCap = cap;
+    t->keyCount = n;
+    return 1;
+}
+
+static int index_ensure (Table *t, const int *cols, int n) {
+    if (t->keyBuckets && t->numKeyCols == n && !memcmp (t->keyCols, cols, (size_t)n * sizeof (int))) {
+        return 1;
+    }
+    index_drop (t);
+
+    t->keyCols = malloc ((size_t)n * sizeof (int));
+    if (!t->keyCols) {
+        return 0;
+    }
+    memcpy (t->keyCols, cols, (size_t)n * sizeof (int));
+    t->numKeyCols = n;
+
+    size_t rows = 0;
+    for (Record *r = t->records; r; r = r->next) {
+        rows++;
+    }
+    size_t cap = 16;
+    while (cap < rows * 2) {
+        cap *= 2;
+    }
+    if (!index_rehash (t, cap)) {
+        index_drop (t);
+        return 0;
+    }
+    return 1;
+}
+
+/* Called after r has been linked into the record list. */
+static void index_add (Table *t, Record *r) {
+    if (!t->keyBuckets) {
+        return;
+    }
+    if (t->keyCount + 1 > t->keyBucketCap - (t->keyBucketCap >> 2)) {
+        /* Load factor above 0.75. index_rehash() walks the record list, which
+         * already holds r, so it picks it up on the way. */
+        if (!index_rehash (t, t->keyBucketCap * 2)) {
+            index_drop (t); /* lose the index rather than fail the statement */
+        }
+        return;
+    }
+    index_bucket_put (t->keyBuckets, t->keyBucketCap, t, r);
+    t->keyCount++;
+}
+
+static Record *index_lookup (Table *t, const Field *values) {
+    size_t b = (size_t)(hash_key (t, t->keyCols, t->numKeyCols, values) & (t->keyBucketCap - 1));
+    for (Record *r = t->keyBuckets[b]; r; r = r->hnext) {
+        if (key_equal (t, t->keyCols, t->numKeyCols, r->fields, values)) {
+            return r;
+        }
+    }
+    return NULL;
+}
+
+/* ---------------------------------------------------------------------- */
 
 static int record_matches (Table *t, Record *r, int colIdx, CmpOp op, const sqlram_value *lit) {
     int c = value_cmp (t->fields[colIdx]->fieldType, &r->fields[colIdx], lit);
@@ -157,7 +338,25 @@ static int sort_cmp (const void *a, const void *b) {
     return sort_desc ? -c : c;
 }
 
-int exec_insert (char *tblname, Field *values, int numValues) {
+/* Resolves the ON CONFLICT column names to column indices. */
+static int resolve_key (Table *t, char **names, int n, int *out) {
+    for (int i = 0; i < n; i++) {
+        out[i] = find_col (t, names[i]);
+        if (out[i] < 0) {
+            sqlram_set_error ("unknown column '%s'", names[i]);
+            return 0;
+        }
+        for (int j = 0; j < i; j++) {
+            if (out[j] == out[i]) {
+                sqlram_set_error ("duplicate conflict column '%s'", names[i]);
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+static int insert_or_upsert (char *tblname, Field *values, int numValues, char **conflictCols, int numConflictCols) {
     Table *t = find_table (tblname);
     if (!t) {
         sqlram_set_error ("table '%s' not found", tblname);
@@ -167,10 +366,43 @@ int exec_insert (char *tblname, Field *values, int numValues) {
         sqlram_set_error ("expected %d values, got %d", t->numFields, numValues);
         return -1;
     }
+    /* Coercion has to happen before the key is hashed, so that an INT literal
+     * probing a FLOAT key column matches the stored value. */
     for (int i = 0; i < t->numFields; i++) {
         if (!field_coerce (&values[i], t->fields[i]->fieldType)) {
             sqlram_set_error ("type mismatch on column '%s'", t->fields[i]->fieldName);
             return -1;
+        }
+    }
+
+    if (numConflictCols > 0) {
+        int *cols = malloc ((size_t)numConflictCols * sizeof (int));
+        if (!cols) {
+            sqlram_set_error ("out of memory");
+            return -1;
+        }
+        if (!resolve_key (t, conflictCols, numConflictCols, cols)) {
+            free (cols);
+            return -1;
+        }
+        if (!index_ensure (t, cols, numConflictCols)) {
+            sqlram_set_error ("out of memory");
+            free (cols);
+            return -1;
+        }
+        free (cols);
+
+        Record *hit = index_lookup (t, values);
+        if (hit) {
+            /* Overwrite the whole row in place: the record keeps its position
+             * in the list, so SELECT * ordering is unchanged, and the key
+             * columns are rewritten with equal values, so the index stays
+             * valid. */
+            for (int i = 0; i < t->numFields; i++) {
+                field_free (&hit->fields[i]);
+                hit->fields[i] = value_dup (values[i]);
+            }
+            return 0;
         }
     }
 
@@ -184,6 +416,7 @@ int exec_insert (char *tblname, Field *values, int numValues) {
         r->fields[i] = value_dup (values[i]);
     }
     r->next = NULL;
+    r->hnext = NULL;
 
     if (!t->records) {
         t->records = r;
@@ -192,7 +425,16 @@ int exec_insert (char *tblname, Field *values, int numValues) {
         t->tail->next = r;
         t->tail = r;
     }
+    index_add (t, r);
     return 0;
+}
+
+int exec_insert (char *tblname, Field *values, int numValues) {
+    return insert_or_upsert (tblname, values, numValues, NULL, 0);
+}
+
+int exec_upsert (char *tblname, Field *values, int numValues, char **conflictCols, int numConflictCols) {
+    return insert_or_upsert (tblname, values, numValues, conflictCols, numConflictCols);
 }
 
 sqlram_result *exec_select (struct SelectS *sel) {
@@ -348,6 +590,9 @@ int exec_update (struct UpdateS *upd) {
         }
     }
 
+    /* Fields change in place and may belong to the cached key. */
+    index_drop (t);
+
     int affected = 0;
     for (Record *r = t->records; r; r = r->next) {
         if (whereIdx >= 0 && !record_matches (t, r, whereIdx, upd->whereOp, &upd->whereVal)) {
@@ -379,6 +624,9 @@ int exec_delete (struct DeleteS *del) {
             return -1;
         }
     }
+
+    /* Records are about to be unlinked and freed. */
+    index_drop (t);
 
     int affected = 0;
     Record **pp = &t->records;

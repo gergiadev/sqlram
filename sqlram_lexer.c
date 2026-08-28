@@ -44,21 +44,17 @@ static const struct {
     size_t len;
     TokenK kind;
 } KEYWORDS[] = {
-    {"create", 6, TK_CREATE},    {"show", 4, TK_SHOW},
-    {"drop", 4, TK_DROP},        {"use", 3, TK_USE},
-    {"insert", 6, TK_INSERT},    {"into", 4, TK_INTO},
-    {"select", 6, TK_SELECT},    {"from", 4, TK_FROM},
-    {"update", 6, TK_UPDATE},    {"set", 3, TK_SET},
-    {"where", 5, TK_WHERE},      {"delete", 6, TK_DELETE},
-    {"order", 5, TK_ORDER},      {"by", 2, TK_BY},
-    {"asc", 3, TK_ASC},          {"desc", 4, TK_DESC},
-    {"limit", 5, TK_LIMIT},      {"truncate", 8, TK_TRUNCATE},
-    {"database", 8, TK_DB},      {"databases", 9, TK_DBS},
-    {"table", 5, TK_TBL},        {"tables", 6, TK_TBLS},
-    {"int", 3, TK_TYPE_INT},     {"bigint", 6, TK_TYPE_INT},
-    {"bool", 4, TK_TYPE_BOOL},   {"text", 4, TK_TYPE_TEXT},
-    {"float", 5, TK_TYPE_FLOAT}, {"timestamp", 9, TK_TYPE_TIMESTAMP},
-    {"true", 4, TK_TRUE},        {"false", 5, TK_FALSE},
+    {"create", 6, TK_CREATE},  {"show", 4, TK_SHOW},         {"drop", 4, TK_DROP},
+    {"use", 3, TK_USE},        {"insert", 6, TK_INSERT},     {"into", 4, TK_INTO},
+    {"on", 2, TK_ON},          {"conflict", 8, TK_CONFLICT}, {"select", 6, TK_SELECT},
+    {"from", 4, TK_FROM},      {"update", 6, TK_UPDATE},     {"set", 3, TK_SET},
+    {"where", 5, TK_WHERE},    {"delete", 6, TK_DELETE},     {"order", 5, TK_ORDER},
+    {"by", 2, TK_BY},          {"asc", 3, TK_ASC},           {"desc", 4, TK_DESC},
+    {"limit", 5, TK_LIMIT},    {"truncate", 8, TK_TRUNCATE}, {"database", 8, TK_DB},
+    {"databases", 9, TK_DBS},  {"table", 5, TK_TBL},         {"tables", 6, TK_TBLS},
+    {"int", 3, TK_TYPE_INT},   {"bigint", 6, TK_TYPE_INT},   {"bool", 4, TK_TYPE_BOOL},
+    {"text", 4, TK_TYPE_TEXT}, {"float", 5, TK_TYPE_FLOAT},  {"timestamp", 9, TK_TYPE_TIMESTAMP},
+    {"true", 4, TK_TRUE},      {"false", 5, TK_FALSE},
 };
 
 static Token *make_kw_token (const char *stmt, size_t len, TokenK kind) {

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
+#include <stdint.h>
 
 #define CONTEXT_SIZE 65536
 
@@ -37,8 +38,13 @@ typedef struct TableFieldS {
 typedef struct Record {
     Field         *fields;
     struct Record *next;
+    struct Record *hnext; /* next in the same hash bucket (see Table.keyBuckets) */
 } Record;
 
+/* A table caches one hash index, built over the key columns of the last
+ * "ON CONFLICT { ... }" clause seen for it. keyBuckets == NULL means no index
+ * is live; it is dropped whenever records move or change (UPDATE, DELETE,
+ * TRUNCATE) and rebuilt lazily on the next upsert. */
 typedef struct Table {
     char          *name;
     int            numFields;
@@ -46,6 +52,12 @@ typedef struct Table {
     Record        *records;
     Record        *tail;
     struct Table  *next;
+
+    Record       **keyBuckets;
+    size_t         keyBucketCap; /* always a power of two */
+    size_t         keyCount;
+    int           *keyCols;
+    int            numKeyCols;
 } Table;
 
 typedef struct Database {
@@ -103,6 +115,8 @@ struct InsertS {
     int    numValues;
     int   *param;      /* param[i] = bind index for value i, or -1 */
     int    numParams;
+    char **conflictCols; /* ON CONFLICT key columns, NULL for a plain INSERT */
+    int    numConflictCols;
 };
 
 struct SelectS {
@@ -181,6 +195,8 @@ typedef enum {
     TK_USE,
     TK_INSERT,
     TK_INTO,
+    TK_ON,
+    TK_CONFLICT,
     TK_SELECT,
     TK_FROM,
     TK_UPDATE,
@@ -246,6 +262,8 @@ Table         *find_table(const char *name);
 void           table_free_list(Table *t);
 
 int            exec_insert(char *tblname, Field *values, int numValues);
+int            exec_upsert(char *tblname, Field *values, int numValues,
+                           char **conflictCols, int numConflictCols);
 sqlram_result *exec_select(struct SelectS *sel);
 int            exec_update(struct UpdateS *upd);
 int            exec_delete(struct DeleteS *del);

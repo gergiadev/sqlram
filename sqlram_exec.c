@@ -41,9 +41,11 @@ sqlram_result *exec_dispatch (Node *node) {
         return exec_show_tables ();
 
     case NODE_INSERT: {
-        if (exec_insert (node->nodeAST.Insert.tblname, node->nodeAST.Insert.values, node->nodeAST.Insert.numValues) < 0) {
+        if (exec_upsert (node->nodeAST.Insert.tblname, node->nodeAST.Insert.values, node->nodeAST.Insert.numValues, node->nodeAST.Insert.conflictCols,
+                         node->nodeAST.Insert.numConflictCols) < 0) {
             return NULL;
         }
+        /* One row either way: inserted, or updated on conflict. */
         sqlram_result *r = empty_ok ();
         if (r) {
             r->affected = 1;

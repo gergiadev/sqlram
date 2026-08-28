@@ -28,6 +28,13 @@ void field_free (Field *f) {
     }
 }
 
+/* Keyword tokens keep their source text in Tvalue (make_kw_token), so the
+ * words introduced for the upsert clause can still be used as identifiers.
+ * Without this, adding "on" to the lexer would break any column named 'on'. */
+static int tok_is_ident (Token *t) {
+    return t && (t->Tkind == TK_STRING || t->Tkind == TK_ON || t->Tkind == TK_CONFLICT);
+}
+
 static int tok_to_cmpop (TokenK k, CmpOp *op) {
     switch (k) {
     case TK_EQ:
@@ -89,7 +96,7 @@ static int parse_value (Token **t, Field *out) {
 /* Parses "WHERE col op val". */
 static void parse_where (Token **t, char **whereCol, CmpOp *op, Field *val) {
     advance (t);
-    if (!*t || (*t)->Tkind != TK_STRING) {
+    if (!tok_is_ident (*t)) {
         return;
     }
     *whereCol = astrdup ((*t)->Tvalue);
@@ -110,7 +117,7 @@ static void parse_orderby (Token **t, char **orderCol, int *desc) {
         return;
     }
     advance (t);
-    if (!*t || (*t)->Tkind != TK_STRING) {
+    if (!tok_is_ident (*t)) {
         return;
     }
     *orderCol = astrdup ((*t)->Tvalue);
@@ -161,7 +168,7 @@ static TableFieldS **parse_columns (Token **t, int *numFields) {
         }
 
         advance (t);
-        if (!*t || (*t)->Tkind != TK_STRING) {
+        if (!tok_is_ident (*t)) {
             return NULL;
         }
 
@@ -307,12 +314,63 @@ static void parse_insert (Token **t, Node *node) {
         }
     }
 
+    if (*t && (*t)->Tkind == TK_END_CURLY_BRACKET) {
+        advance (t);
+    }
+
+    /* Optional "ON CONFLICT { col, ... } UPDATE". Note that a plain INSERT
+     * historically ignored whatever followed the value list, so accepting this
+     * clause cannot break a statement that used to mean something else. */
+    char **conflictCols = NULL;
+    int nconflict = 0;
+
+    if (*t && (*t)->Tkind == TK_ON) {
+        advance (t);
+        if (!*t || (*t)->Tkind != TK_CONFLICT) {
+            return;
+        }
+        advance (t);
+        if (!*t || (*t)->Tkind != TK_START_CURLY_BRACKET) {
+            return;
+        }
+        advance (t);
+
+        while (tok_is_ident (*t)) {
+            char **tmp = arealloc (conflictCols, nconflict * sizeof (char *), (nconflict + 1) * sizeof (char *));
+            if (!tmp) {
+                return;
+            }
+            conflictCols = tmp;
+            conflictCols[nconflict++] = astrdup ((*t)->Tvalue);
+            advance (t);
+            if (*t && (*t)->Tkind == TK_COMMA) {
+                advance (t);
+                continue;
+            }
+            break;
+        }
+
+        if (nconflict == 0) {
+            return;
+        }
+        if (!*t || (*t)->Tkind != TK_END_CURLY_BRACKET) {
+            return;
+        }
+        advance (t);
+        if (!*t || (*t)->Tkind != TK_UPDATE) {
+            return;
+        }
+        advance (t);
+    }
+
     node->Nkind = NODE_INSERT;
     node->nodeAST.Insert.tblname = tblname;
     node->nodeAST.Insert.values = values;
     node->nodeAST.Insert.numValues = num;
     node->nodeAST.Insert.param = params;
     node->nodeAST.Insert.numParams = nparam;
+    node->nodeAST.Insert.conflictCols = conflictCols;
+    node->nodeAST.Insert.numConflictCols = nconflict;
 }
 
 static void parse_select (Token **t, Node *node) {
@@ -323,7 +381,7 @@ static void parse_select (Token **t, Node *node) {
     if (*t && (*t)->Tkind == TK_STAR) {
         advance (t);
     } else {
-        while (*t && (*t)->Tkind == TK_STRING) {
+        while (tok_is_ident (*t)) {
             char **tmp = arealloc (cols, numCols * sizeof (char *), (numCols + 1) * sizeof (char *));
             if (!tmp) {
                 return;
@@ -386,7 +444,7 @@ static void parse_update (Token **t, Node *node) {
         return;
     }
     advance (t);
-    if (!*t || (*t)->Tkind != TK_STRING) {
+    if (!tok_is_ident (*t)) {
         return;
     }
     char *col = astrdup ((*t)->Tvalue);

@@ -1,0 +1,154 @@
+Query OK. 0 rows affected
+Query OK. 0 rows affected
+Query OK. 0 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+id|name|price
+1|apple|0.99
+2|bread deluxe|9.99
+3|milk|0.8
+Query OK. 1 rows affected
+id|name|price
+1|apple|0.99
+2|bread deluxe|9.99
+3|milk|0.8
+4|eggs|2.2
+Query OK. 1 rows affected
+id|name|price
+99|apple|0.01
+2|bread deluxe|9.99
+3|milk|0.8
+4|eggs|2.2
+Query OK. 1 rows affected
+id|name|price
+99|apple|0.01
+2|bread deluxe|9.99
+3|milk|0.8
+4|eggs|2.2
+5|milk|1.11
+Query OK. 0 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+k|v
+a|ONE AGAIN
+b|two
+Query OK. 0 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+year|month|total
+2024|7|999
+2024|8|200
+2025|7|300
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+year|month|total
+2024|7|999
+2024|8|222
+2025|7|300
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+year|month|total
+2024|7|999
+2024|8|222
+2025|7|333
+Query OK. 3 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+year|month|total
+2024|7|8
+Query OK. 0 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+id|tag
+1|upserted
+1|second
+1|third
+Error: unknown column 'nope'
+Error: duplicate conflict column 'id'
+Error: invalid statement: INSERT INTO items { 1, "x", 1.0 } ON CONFLICT { } UPDATE;
+
+Error: invalid statement: INSERT INTO items { 1, "x", 1.0 } ON CONFLICT { id };
+
+Error: table 'nosuch' not found
+Query OK. 0 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+id|on|conflict
+1|true|x
+Query OK. 1 rows affected
+id|on|conflict
+1|true|x
+2|false|z
+Query OK. 1 rows affected
+id|on|conflict
+9|true|w
+2|false|z
+Query OK. 0 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+Query OK. 1 rows affected
+id|v
+1|w1
+2|w2
+3|w3
+4|w4
+5|w5
+6|w6
+7|w7
+8|w8
+9|w9
+10|w10
+11|w11
+12|w12
+13|w13
+14|w14
+15|w15
+16|w16
+17|w17
+18|w18
+19|w19
+20|w20
