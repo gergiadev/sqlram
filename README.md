@@ -100,9 +100,7 @@ int main(void) {
     }
 
     for (int i = 0; i < r->num_rows; i++) {
-        printf("%ld %s\n",
-               r->rows[i][0].v.i_val,
-               r->rows[i][1].v.s_val);
+        printf("%ld %s\n", r->rows[i][0].v.i_val, r->rows[i][1].v.s_val);
     }
 
     sqlram_result_free(r);
@@ -120,8 +118,7 @@ sqlram_result *sqlram_exec(const char *sql);     /* run one statement */
 const char    *sqlram_error(void);               /* last error message */
 void           sqlram_result_free(sqlram_result *r);
 
-int sqlram_dump(const char *dstName, const char *format,
-                const char *dbName, const char *tblName);
+int sqlram_dump(const char *dstName, const char *format, const char *dbName, const char *tblName);
 
 sqlram_stmt  *sqlram_prepare(const char *sql);   /* prepared statement */
 int           sqlram_bind(sqlram_stmt *st, int index, sqlram_value value);
