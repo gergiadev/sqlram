@@ -1,31 +1,70 @@
 #include "sqlram_internal.h"
 
-/* Bump allocator. Memory is reclaimed all at once with arena_reset()/arena_free();
- * no individual frees are performed. */
+/* Bump allocator over a list of chunks. Memory is reclaimed all at once with
+ * arena_reset()/arena_free(); no individual frees are performed.
+ *
+ * Chunks are never resized. A pointer handed out by arena_alloc() stays valid
+ * until the next reset, which is what lets the lexer and the parser hold
+ * interior pointers (Token.next_token, every char * in the AST) while they
+ * keep allocating. */
+
+#define ARENA_CHUNK_MIN 4096
+
+static size_t align8 (size_t n) {
+    return (n + 7) & ~(size_t)7;
+}
+
+/* Header and payload in one allocation, as with Record. */
+static ArenaChunk *chunk_new (size_t need, size_t prev_cap) {
+    size_t cap = prev_cap ? prev_cap * 2 : ARENA_CHUNK_MIN;
+    while (cap < need) {
+        cap *= 2;
+    }
+
+    ArenaChunk *c = malloc (sizeof (ArenaChunk) + cap);
+    if (!c) {
+        return NULL;
+    }
+    c->next = NULL;
+    c->used = 0;
+    c->cap = cap;
+    c->data = (char *)(c + 1);
+    return c;
+}
+
 void arena_init (Arena *a) {
-    a->buf = NULL;
-    a->used = 0;
-    a->cap = 0;
+    a->first = NULL;
+    a->cur = NULL;
 }
 
 void *arena_alloc (Arena *a, size_t size) {
-    size_t aligned = (size + 7) & ~(size_t)7;
+    size_t aligned = align8 (size);
 
-    if (a->used + aligned > a->cap) {
-        size_t new_cap = a->cap ? a->cap : 4096;
-        while (new_cap < a->used + aligned) {
-            new_cap *= 2;
+    if (!a->cur || a->cur->used + aligned > a->cur->cap) {
+        /* arena_reset() keeps the chunks, so look for a spent one further down
+         * the list before allocating another. */
+        ArenaChunk *c = a->cur ? a->cur->next : a->first;
+        while (c && c->used + aligned > c->cap) {
+            c = c->next;
         }
-        char *nb = realloc (a->buf, new_cap);
-        if (!nb) {
-            return NULL;
+        if (!c) {
+            c = chunk_new (aligned, a->cur ? a->cur->cap : 0);
+            if (!c) {
+                return NULL;
+            }
+            if (a->cur) {
+                c->next = a->cur->next;
+                a->cur->next = c;
+            } else {
+                c->next = a->first;
+                a->first = c;
+            }
         }
-        a->buf = nb;
-        a->cap = new_cap;
+        a->cur = c;
     }
 
-    void *p = a->buf + a->used;
-    a->used += aligned;
+    void *p = a->cur->data + a->cur->used;
+    a->cur->used += aligned;
     return p;
 }
 
@@ -69,12 +108,19 @@ void *arena_realloc (Arena *a, void *ptr, size_t old_size, size_t new_size) {
 }
 
 void arena_reset (Arena *a) {
-    a->used = 0;
+    for (ArenaChunk *c = a->first; c; c = c->next) {
+        c->used = 0;
+    }
+    a->cur = a->first;
 }
 
 void arena_free (Arena *a) {
-    free (a->buf);
-    a->buf = NULL;
-    a->used = 0;
-    a->cap = 0;
+    ArenaChunk *c = a->first;
+    while (c) {
+        ArenaChunk *next = c->next;
+        free (c);
+        c = next;
+    }
+    a->first = NULL;
+    a->cur = NULL;
 }

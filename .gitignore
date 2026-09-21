@@ -55,16 +55,18 @@ dkms.conf
 *.dwo
 
 # exec
-sqlram
-example
-benchmark
+/sqlram
+/example
+/benchmark
 
 # support file
 *.txt
 *.sql
+# ...but the test fixtures are part of the suite
+!tests/*.sql
 
 # various
 .DS_Store
 .vscode
-# test binaries
-tests/test_prepared_upsert
+# test 
+tests

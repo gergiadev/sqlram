@@ -13,7 +13,7 @@ sqlram_result *exec_dispatch (Node *node) {
 
     switch (node->Nkind) {
     case NODE_INVALID:
-        sqlram_set_error ("invalid statement: %s", node->pos ? node->pos : "");
+        set_parse_error (node, "");
         return NULL;
 
     case NODE_CREATE_DATABASE:

@@ -429,10 +429,6 @@ static int insert_or_upsert (char *tblname, Field *values, int numValues, char *
     return 0;
 }
 
-int exec_insert (char *tblname, Field *values, int numValues) {
-    return insert_or_upsert (tblname, values, numValues, NULL, 0);
-}
-
 int exec_upsert (char *tblname, Field *values, int numValues, char **conflictCols, int numConflictCols) {
     return insert_or_upsert (tblname, values, numValues, conflictCols, numConflictCols);
 }

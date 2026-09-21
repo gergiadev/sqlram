@@ -103,6 +103,28 @@ void sqlram_init (void) {
 /* Scratch arena for one-shot statements; reset at each sqlram_exec(). */
 static Arena scratch;
 
+/* Reports a failed parse: the reason recorded by the parser plus a short
+ * excerpt of the input where it stopped, cut at the first newline. Statements
+ * that fail without recording a reason keep the older, blunter wording. */
+void set_parse_error (Node *nd, const char *sql) {
+    const char *at = nd->pos ? nd->pos : sql;
+
+    if (!nd->errmsg) {
+        sqlram_set_error ("invalid statement: %s", at);
+        return;
+    }
+
+    char excerpt[33];
+    size_t n = 0;
+    while (n < sizeof (excerpt) - 1 && at[n] && at[n] != '\n' && at[n] != '\r') {
+        excerpt[n] = at[n];
+        n++;
+    }
+    excerpt[n] = '\0';
+
+    sqlram_set_error ("%s near \"%s\"", nd->errmsg, excerpt);
+}
+
 sqlram_result *sqlram_exec (const char *sql) {
     sqlram_errbuf[0] = '\0';
     if (!sql || !*sql) {
@@ -120,7 +142,7 @@ sqlram_result *sqlram_exec (const char *sql) {
 
     sqlram_result *res = NULL;
     if (nd->Nkind == NODE_INVALID) {
-        sqlram_set_error ("invalid statement: %s", nd->pos ? nd->pos : sql);
+        set_parse_error (nd, sql);
     } else {
         res = exec_dispatch (nd);
     }
@@ -158,7 +180,7 @@ sqlram_stmt *sqlram_prepare (const char *sql) {
         return NULL;
     }
     if (nd->Nkind == NODE_INVALID) {
-        sqlram_set_error ("invalid statement: %s", nd->pos ? nd->pos : sql);
+        set_parse_error (nd, sql);
         arena_free (&st->arena);
         free (st);
         return NULL;

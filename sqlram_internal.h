@@ -12,10 +12,19 @@
 
 #define CONTEXT_SIZE 65536
 
+/* The arena hands out interior pointers that must stay valid until the next
+ * reset, so a chunk is never resized once allocated: growing means appending
+ * a new one. A chunk and its payload are one allocation, as with Record. */
+typedef struct ArenaChunk {
+    struct ArenaChunk *next;
+    size_t             used;
+    size_t             cap;
+    char              *data;
+} ArenaChunk;
+
 typedef struct Arena {
-    char  *buf;
-    size_t used;
-    size_t cap;
+    ArenaChunk *first;
+    ArenaChunk *cur;
 } Arena;
 
 void   arena_init(Arena *a);
@@ -172,6 +181,7 @@ typedef struct Node {
     } nodeAST;
 
     char *pos;
+    char *errmsg; /* why the parse failed, when Nkind is NODE_INVALID */
 } Node;
 
 typedef enum {
@@ -232,16 +242,13 @@ typedef struct Token {
     struct Token *next_token;
 } Token;
 
-typedef struct Parser {
-    Token *current;
-} Parser;
-
 Token *lexer(Arena *a, char *stmt);
 
 Node *parser(Arena *a, Token *tkList);
 void  field_free(Field *f);
 
 void         sqlram_set_error(const char *fmt, ...);
+void         set_parse_error(Node *nd, const char *sql);
 sqlram_value value_dup(sqlram_value v);
 sqlram_result *result_new(int ncols);
 void          result_set_col(sqlram_result *r, int i, const char *name);
@@ -261,7 +268,6 @@ int            exec_drop_table(char *tblname);
 Table         *find_table(const char *name);
 void           table_free_list(Table *t);
 
-int            exec_insert(char *tblname, Field *values, int numValues);
 int            exec_upsert(char *tblname, Field *values, int numValues,
                            char **conflictCols, int numConflictCols);
 sqlram_result *exec_select(struct SelectS *sel);

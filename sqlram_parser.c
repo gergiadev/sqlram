@@ -12,6 +12,28 @@ static void *arealloc (void *p, size_t old_sz, size_t new_sz) {
     return arena_realloc (g_arena, p, old_sz, new_sz);
 }
 
+/* A sub-parser reports failure by returning early, which leaves NODE_INVALID
+ * on the node parser() pre-set. perr() records why, so the caller can say more
+ * than "invalid statement". The first error wins: the ones after it are its
+ * fallout. Both are reset by parser() and owned by its arena. */
+static char *g_err_msg;
+static char *g_err_pos;
+
+static void perr (Token *t, const char *fmt, ...) {
+    if (g_err_msg) {
+        return;
+    }
+
+    char buf[256];
+    va_list ap;
+    va_start (ap, fmt);
+    vsnprintf (buf, sizeof (buf), fmt, ap);
+    va_end (ap);
+
+    g_err_msg = arena_strdup (g_arena, buf);
+    g_err_pos = t ? t->Tpos : NULL;
+}
+
 static void advance (Token **t) {
     if (*t && (*t)->next_token) {
         *t = (*t)->next_token;
@@ -93,22 +115,27 @@ static int parse_value (Token **t, Field *out) {
     return 1;
 }
 
-/* Parses "WHERE col op val". */
+/* Parses "WHERE col op val". Reporting each failure matters here: the caller
+ * has already set the statement kind and whereCol is filled in before the
+ * operator is read, so without perr() an incomplete clause would run as
+ * "WHERE col = 0" rather than fail. */
 static void parse_where (Token **t, char **whereCol, CmpOp *op, Field *val) {
     advance (t);
     if (!tok_is_ident (*t)) {
+        perr (*t, "expected a column name after WHERE");
         return;
     }
     *whereCol = astrdup ((*t)->Tvalue);
     advance (t);
     if (!*t || !tok_to_cmpop ((*t)->Tkind, op)) {
+        perr (*t, "expected a comparison operator after '%s'", *whereCol);
         return;
     }
     advance (t);
-    if (!*t) {
+    if (!parse_value (t, val)) {
+        perr (*t, "expected a value to compare '%s' against", *whereCol);
         return;
     }
-    parse_value (t, val);
 }
 
 static void parse_orderby (Token **t, char **orderCol, int *desc) {
@@ -533,6 +560,8 @@ static void parse_truncate (Token **t, Node *node) {
 
 Node *parser (Arena *a, Token *tkList) {
     g_arena = a;
+    g_err_msg = NULL;
+    g_err_pos = NULL;
 
     if (!tkList) {
         return NULL;
@@ -576,9 +605,19 @@ Node *parser (Arena *a, Token *tkList) {
         parse_truncate (&tk, node);
         break;
     default:
-        node->Nkind = NODE_INVALID;
-        node->pos = tk->Tpos;
+        perr (tk, "expected a statement keyword");
         break;
+    }
+
+    /* Applied after the switch on purpose: sub-parsers set their node kind
+     * before parsing the optional clauses, so only a terminal override can
+     * turn a half-parsed statement back into a failure. */
+    if (g_err_msg) {
+        node->Nkind = NODE_INVALID;
+        node->errmsg = g_err_msg;
+        if (g_err_pos) {
+            node->pos = g_err_pos;
+        }
     }
 
     return node;
