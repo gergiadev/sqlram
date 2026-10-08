@@ -78,6 +78,9 @@ static TokenK scan_number (const char *s, const char **end) {
     const char *p = s;
     int is_float = 0;
 
+    if (*p == '-') {
+        p++;
+    }
     while (isdigit ((unsigned char)*p)) {
         p++;
     }
@@ -142,6 +145,8 @@ Token *lexer (Arena *a, char *stmt) {
             stmtBuf[posCounter] = '\0';
             if (*stmt == quote) {
                 stmt++;
+            } else {
+                tok->Tkind = TK_ERROR;
             }
             tok->Tvalue = astrdup (stmtBuf);
             tok->TLen = posCounter;
@@ -150,7 +155,7 @@ Token *lexer (Arena *a, char *stmt) {
             continue;
         }
 
-        if (isalpha ((unsigned char)*stmt)) {
+        if (isalpha ((unsigned char)*stmt) || *stmt == '_') {
             tok = NULL;
             for (size_t i = 0; i < sizeof (KEYWORDS) / sizeof (KEYWORDS[0]); i++) {
                 if (match_kw (stmt, KEYWORDS[i].kw)) {
@@ -164,7 +169,7 @@ Token *lexer (Arena *a, char *stmt) {
                 tok->Tkind = TK_STRING;
                 tok->Tpos = stmt;
                 posCounter = 0;
-                while ((isalpha ((unsigned char)*stmt) || isdigit ((unsigned char)*stmt)) && posCounter < CONTEXT_SIZE - 1) {
+                while ((isalnum ((unsigned char)*stmt) || *stmt == '_') && posCounter < CONTEXT_SIZE - 1) {
                     stmtBuf[posCounter++] = *stmt++;
                 }
                 stmtBuf[posCounter] = '\0';
@@ -176,7 +181,7 @@ Token *lexer (Arena *a, char *stmt) {
             continue;
         }
 
-        if (isdigit ((unsigned char)*stmt)) {
+        if (isdigit ((unsigned char)*stmt) || (*stmt == '-' && isdigit ((unsigned char)stmt[1]))) {
             const char *end;
             TokenK kind = scan_number (stmt, &end);
             size_t len = (size_t)(end - stmt);
@@ -200,14 +205,9 @@ Token *lexer (Arena *a, char *stmt) {
         if (*stmt == '=') {
             tok = make_punct (TK_EQ, stmt, 1);
             stmt++;
-        } else if (*stmt == '!') {
-            if (stmt[1] == '=') {
-                tok = make_punct (TK_NE, stmt, 2);
-                stmt += 2;
-            } else {
-                stmt++;
-                continue;
-            }
+        } else if (*stmt == '!' && stmt[1] == '=') {
+            tok = make_punct (TK_NE, stmt, 2);
+            stmt += 2;
         } else if (*stmt == '<') {
             if (stmt[1] == '=') {
                 tok = make_punct (TK_LE, stmt, 2);
@@ -242,8 +242,8 @@ Token *lexer (Arena *a, char *stmt) {
         } else if (*stmt == ';') {
             break;
         } else {
+            tok = make_punct (TK_ERROR, stmt, 1);
             stmt++;
-            continue;
         }
 
         cur->next_token = tok;

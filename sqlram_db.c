@@ -62,9 +62,13 @@ int exec_drop_database (char *dbname) {
             table_free_list (db->tables);
             free (db->name);
 
-            db_array.dbs[i] = db_array.dbs[db_array.count - 1];
             db_array.count--;
-            db_array.usedIdx = -1;
+            db_array.dbs[i] = db_array.dbs[db_array.count];
+            if (db_array.usedIdx == (int)i) {
+                db_array.usedIdx = -1;
+            } else if (db_array.usedIdx == (int)db_array.count) {
+                db_array.usedIdx = (int)i;
+            }
             return 0;
         }
     }

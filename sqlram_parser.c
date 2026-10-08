@@ -1,4 +1,5 @@
 #include "sqlram_internal.h"
+#include <errno.h>
 
 static Arena *g_arena;
 
@@ -82,6 +83,16 @@ static int tok_to_cmpop (TokenK k, CmpOp *op) {
     }
 }
 
+static int parse_long (Token *tk, long *out) {
+    errno = 0;
+    *out = strtol (tk->Tvalue, NULL, 10);
+    if (errno == ERANGE) {
+        perr (tk, "integer out of range");
+        return 0;
+    }
+    return 1;
+}
+
 static int parse_value (Token **t, Field *out) {
     Token *tk = *t;
     if (!tk) {
@@ -90,7 +101,9 @@ static int parse_value (Token **t, Field *out) {
     switch (tk->Tkind) {
     case TK_NUMBER:
         out->type = SQLRAM_INT;
-        out->v.i_val = strtol (tk->Tvalue, NULL, 10);
+        if (!parse_long (tk, &out->v.i_val)) {
+            return 0;
+        }
         break;
     case TK_TRUE:
         out->type = SQLRAM_BOOL;
@@ -141,10 +154,12 @@ static void parse_where (Token **t, char **whereCol, CmpOp *op, Field *val) {
 static void parse_orderby (Token **t, char **orderCol, int *desc) {
     advance (t);
     if (!*t || (*t)->Tkind != TK_BY) {
+        perr (*t, "expected BY after ORDER");
         return;
     }
     advance (t);
     if (!tok_is_ident (*t)) {
+        perr (*t, "expected a column name after ORDER BY");
         return;
     }
     *orderCol = astrdup ((*t)->Tvalue);
@@ -158,12 +173,15 @@ static void parse_orderby (Token **t, char **orderCol, int *desc) {
     }
 }
 
-static void parse_limit (Token **t, int *limit) {
+static void parse_limit (Token **t, long *limit) {
     advance (t);
     if (!*t || (*t)->Tkind != TK_NUMBER) {
+        perr (*t, "expected a number after LIMIT");
         return;
     }
-    *limit = atoi ((*t)->Tvalue);
+    if (!parse_long (*t, limit)) {
+        return;
+    }
     advance (t);
 }
 
@@ -235,6 +253,7 @@ static void parse_create (Token **t, Node *node) {
         }
         node->Nkind = NODE_CREATE_DATABASE;
         node->nodeAST.CreateDatabase.dbname = astrdup ((*t)->Tvalue);
+        advance (t);
         return;
     }
 
@@ -280,6 +299,7 @@ static void parse_show (Token **t, Node *node) {
     } else {
         node->pos = (*t)->Tpos;
     }
+    advance (t);
 }
 
 static void parse_use (Token **t, Node *node) {
@@ -289,6 +309,7 @@ static void parse_use (Token **t, Node *node) {
     }
     node->Nkind = NODE_USE_DATABASE;
     node->nodeAST.UseDatabase.dbname = astrdup ((*t)->Tvalue);
+    advance (t);
 }
 
 static void parse_insert (Token **t, Node *node) {
@@ -547,6 +568,7 @@ static void parse_drop (Token **t, Node *node) {
     } else {
         node->pos = (*t)->Tpos;
     }
+    advance (t);
 }
 
 static void parse_truncate (Token **t, Node *node) {
@@ -556,6 +578,7 @@ static void parse_truncate (Token **t, Node *node) {
     }
     node->Nkind = NODE_TRUNCATE;
     node->nodeAST.Truncate.tblname = astrdup ((*t)->Tvalue);
+    advance (t);
 }
 
 Node *parser (Arena *a, Token *tkList) {
@@ -607,6 +630,10 @@ Node *parser (Arena *a, Token *tkList) {
     default:
         perr (tk, "expected a statement keyword");
         break;
+    }
+
+    if (node->Nkind != NODE_INVALID && tk->Tkind != TK_END) {
+        perr (tk, "unexpected input after statement");
     }
 
     /* Applied after the switch on purpose: sub-parsers set their node kind

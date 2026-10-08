@@ -47,6 +47,14 @@ int exec_create_table (char *tblname, TableFieldS **fields, int numFields) {
         sqlram_set_error ("table '%s' already exists", tblname);
         return -1;
     }
+    for (int i = 0; i < numFields; i++) {
+        for (int j = 0; j < i; j++) {
+            if (!strcmp (fields[i]->fieldName, fields[j]->fieldName)) {
+                sqlram_set_error ("duplicate column '%s'", fields[i]->fieldName);
+                return -1;
+            }
+        }
+    }
 
     Table *t = calloc (1, sizeof (Table));
     if (!t) {

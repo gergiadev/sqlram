@@ -1,7 +1,7 @@
 #include "sqlram_internal.h"
 #include <strings.h>
 
-DatabaseArray db_array = {0};
+DatabaseArray db_array = {.usedIdx = -1};
 
 static char sqlram_errbuf[512];
 
@@ -143,6 +143,8 @@ sqlram_result *sqlram_exec (const char *sql) {
     sqlram_result *res = NULL;
     if (nd->Nkind == NODE_INVALID) {
         set_parse_error (nd, sql);
+    } else if (nd->Nkind == NODE_INSERT && nd->nodeAST.Insert.numParams > 0) {
+        sqlram_set_error ("placeholders require a prepared statement");
     } else {
         res = exec_dispatch (nd);
     }

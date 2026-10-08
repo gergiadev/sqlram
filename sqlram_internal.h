@@ -137,7 +137,7 @@ struct SelectS {
     Field  whereVal;
     char  *orderCol;
     int    orderDesc;
-    int    limit;
+    long   limit;
 };
 
 struct UpdateS {
@@ -231,6 +231,7 @@ typedef enum {
     TK_TRUE,
     TK_FALSE,
     TK_PARAM,
+    TK_ERROR,
     TK_END
 } TokenK;
 

@@ -288,6 +288,9 @@ static int field_coerce (Field *f, sqlram_type target) {
     if (f->type == target) {
         return 1;
     }
+    if (f->type == SQLRAM_TEXT && !f->v.s_val) {
+        return 0;
+    }
 
     switch (target) {
     case SQLRAM_FLOAT: {
@@ -525,7 +528,7 @@ sqlram_result *exec_select (struct SelectS *sel) {
     }
 
     if (sel->limit >= 0 && nmatch > sel->limit) {
-        nmatch = sel->limit;
+        nmatch = (int)sel->limit;
     }
 
     sqlram_result *res = result_new (nproj);

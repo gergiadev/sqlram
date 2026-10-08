@@ -34,7 +34,7 @@ static void print_result (sqlram_result *r) {
                 printf ("%s", v->v.b_val ? "true" : "false");
                 break;
             case SQLRAM_FLOAT:
-                printf ("%g", v->v.d_val);
+                printf ("%.15g", v->v.d_val);
                 break;
             case SQLRAM_TIMESTAMP: {
                 char buf[32];
