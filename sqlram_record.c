@@ -545,12 +545,22 @@ sqlram_result *exec_select (struct SelectS *sel) {
         Record *r = matches[k];
         Field *vals = calloc (nproj, sizeof (Field));
         if (!vals) {
-            continue;
+            sqlram_set_error ("out of memory");
+            sqlram_result_free (res);
+            free (proj);
+            free (matches);
+            return NULL;
         }
         for (int i = 0; i < nproj; i++) {
             vals[i] = r->fields[proj[i]];
         }
-        result_add_row (res, vals, nproj);
+        if (result_add_row (res, vals, nproj) < 0) {
+            free (vals);
+            sqlram_result_free (res);
+            free (proj);
+            free (matches);
+            return NULL;
+        }
         free (vals);
     }
 

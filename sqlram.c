@@ -47,16 +47,17 @@ void result_set_col (sqlram_result *r, int i, const char *name) {
     r->col_names[i] = strdup (name);
 }
 
-void result_add_row (sqlram_result *r, Field *vals, int n) {
+int result_add_row (sqlram_result *r, Field *vals, int n) {
     if (!r) {
-        return;
+        return -1;
     }
 
     if (r->num_rows == r->row_cap) {
         int new_cap = r->row_cap ? r->row_cap * 2 : 16;
         sqlram_value **rows = realloc (r->rows, new_cap * sizeof (sqlram_value *));
         if (!rows) {
-            return;
+            sqlram_set_error ("out of memory");
+            return -1;
         }
         r->rows = rows;
         r->row_cap = new_cap;
@@ -65,13 +66,15 @@ void result_add_row (sqlram_result *r, Field *vals, int n) {
     int width = n > 0 ? n : 1;
     sqlram_value *row = calloc (width, sizeof (sqlram_value));
     if (!row) {
-        return;
+        sqlram_set_error ("out of memory");
+        return -1;
     }
     for (int i = 0; i < n; i++) {
         row[i] = value_dup (vals[i]);
     }
     r->rows[r->num_rows] = row;
     r->num_rows++;
+    return 0;
 }
 
 void sqlram_result_free (sqlram_result *r) {

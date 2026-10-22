@@ -39,7 +39,10 @@ sqlram_result *exec_show_databases (void) {
         Field v = {0};
         v.type = SQLRAM_TEXT;
         v.v.s_val = db_array.dbs[i].name;
-        result_add_row (r, &v, 1);
+        if (result_add_row (r, &v, 1) < 0) {
+            sqlram_result_free (r);
+            return NULL;
+        }
     }
     return r;
 }

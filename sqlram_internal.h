@@ -253,7 +253,7 @@ void         set_parse_error(Node *nd, const char *sql);
 sqlram_value value_dup(sqlram_value v);
 sqlram_result *result_new(int ncols);
 void          result_set_col(sqlram_result *r, int i, const char *name);
-void          result_add_row(sqlram_result *r, Field *vals, int n);
+int           result_add_row(sqlram_result *r, Field *vals, int n);
 
 sqlram_result *exec_dispatch(Node *node);
 
